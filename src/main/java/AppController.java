@@ -1,6 +1,7 @@
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
-import javafx.scene.control.ComboBox;
-import javafx.scene.control.Alert;
+import javafx.scene.control.*;
 import javafx.scene.control.Alert.AlertType;
 
 import java.sql.Connection;
@@ -10,17 +11,29 @@ import java.sql.ResultSet;
 import java.util.Locale;
 import java.util.ResourceBundle;
 
-public class MainController {
+public class AppController {
+    @FXML
+    public Label jobTitleLabel;
+    @FXML
+    public ListView<String> jobTitleListView;
     @FXML
     private ComboBox<String> languageComboBox;
+    @FXML
+    private TextField keyNameField;
+    @FXML
+    private TextField translationField;
+    @FXML
+    private Button addUpdateButton;
 
     private ResourceBundle bundle;
 
     @FXML
     public void initialize() {
-        languageComboBox.getItems().addAll("English", "French", "Spanish", "Chinese");
+        languageComboBox.getItems().addAll("English", "Français", "Español", "中文");
         languageComboBox.setValue("English");
         bundle = ResourceBundle.getBundle("messages", new Locale("en", "US"));
+        updateUI();
+        fetchFromDatabase();
     }
 
     @FXML
@@ -28,44 +41,88 @@ public class MainController {
         String selectedLanguage = languageComboBox.getValue();
         Locale locale;
         switch (selectedLanguage) {
-            case "French":
+            case "Français":
                 locale = new Locale("fr", "FR");
                 break;
-            case "Spanish":
+            case "Español":
                 locale = new Locale("es", "ES");
                 break;
-            case "Chinese":
+            case "中文":
                 locale = new Locale("zh", "CN");
                 break;
             default:
                 locale = new Locale("en", "US");
         }
         bundle = ResourceBundle.getBundle("messages", locale);
-        // Update UI elements with new language
+        updateUI();
+        fetchFromDatabase();
+    }
+
+    private void updateUI() {
+        jobTitleLabel.setText(bundle.getString("employeeJobTitle"));
+        addUpdateButton.setText(bundle.getString("addUpdateButton"));
+        keyNameField.setPromptText(bundle.getString("keyNameField"));
+        translationField.setPromptText(bundle.getString("translationField"));
     }
 
     @FXML
+    public void addOrUpdateTranslation() {
+        String keyName = keyNameField.getText();
+        String translation = translationField.getText();
+        String languageCode = bundle.getLocale().getLanguage();
+
+        if (keyName.isEmpty() || translation.isEmpty()) {
+            showAlert(bundle.getString("errorTitle"), bundle.getString("errorMessage"));
+            return;
+        }
+
+        String url = "jdbc:mariadb://localhost:3306/w3_Class";
+        String user = "newuser";
+        String password = "password";
+
+        try (Connection conn = DriverManager.getConnection(url, user, password)) {
+            String query = "INSERT INTO translations (Key_name,  Language_code, translation_text) VALUES (?, ?, ?) " +
+                    "ON DUPLICATE KEY UPDATE translation_text = VALUES(translation_text)";
+            PreparedStatement stmt = conn.prepareStatement(query);
+            stmt.setString(1, keyName);
+            stmt.setString(2, languageCode);
+            stmt.setString(3, translation);
+            stmt.executeUpdate();
+            fetchFromDatabase();
+            showAlert(bundle.getString("successTitle"), bundle.getString("successMessage"));
+        } catch (Exception e) {
+            e.printStackTrace();
+            showAlert(bundle.getString("errorTitle"), bundle.getString("errorUpdateMessage"));
+        }
+    }
+
     public void fetchFromDatabase() {
         String url = "jdbc:mariadb://localhost:3306/w3_Class";
         String user = "newuser";
         String password = "password";
 
         try (Connection conn = DriverManager.getConnection(url, user, password)) {
-            String query = "SELECT translation_text FROM translations WHERE Key_name = ? AND Language_code = ?";
+            String query = "SELECT Key_name, translation_text FROM translations WHERE Language_code = ?";
             PreparedStatement stmt = conn.prepareStatement(query);
-            stmt.setString(1, "job_title");
-            stmt.setString(2, bundle.getLocale().getLanguage());
+            stmt.setString(1, bundle.getLocale().getLanguage());
             ResultSet rs = stmt.executeQuery();
-            if (rs.next()) {
-                String translation = rs.getString("translation_text");
-                Alert alert = new Alert(AlertType.INFORMATION);
-                alert.setTitle(bundle.getString("title"));
-                alert.setHeaderText(null);
-                alert.setContentText(translation);
-                alert.showAndWait();
+            ObservableList<String> jobTitles = FXCollections.observableArrayList();
+            while (rs.next()) {
+                String keyName = rs.getString("Key_name");
+                String translationText = rs.getString("translation_text");
+                jobTitles.add(keyName + " : " + translationText);
             }
+            jobTitleListView.setItems(jobTitles);
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    private void showAlert(String title, String message) {
+        Alert alert = new Alert(AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
     }
 }
